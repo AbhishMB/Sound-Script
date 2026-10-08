@@ -1,0 +1,62 @@
+# Polyphonic music transcription: Demucs separation + harmonic-gated torchcrepe
+
+Implementation of *"A modular approach to polyphonic music transcription using source
+separation and harmonic-gated pitch tracking"* (J. Integr. Sci. Technol. 2026, 14(5), 1582).
+
+```
+audio ──► Demucs v4 (htdemucs, 44.1 kHz stereo)
+            └─► stems: vocals / bass / other   (mono, 16 kHz)
+                  ├─► Branch A: torchcrepe (full)  ──► f0(t), periodicity C(t)
+                  └─► Branch B: Mel(256) + chroma  ──► voicing mask M(t)
+                        └─► gate: f0(t) if M(t) and C(t) >= 0.15 else 0
+                              └─► notes ──► multi-track MIDI (one track per stem)
+```
+
+## Usage
+
+```bash
+pip install -r requirements.txt
+python main.py --input song.wav --output song.mid
+```
+
+## What was fixed relative to the first implementation
+
+| Problem | Fix |
+|---|---|
+| Demucs was fed 16 kHz audio | Input is resampled to the model's 44.1 kHz and made stereo before separation (`amt/separator.py`). |
+| Stereo stems went straight into torchcrepe and the mask | Stems are down-mixed to mono and resampled to 16 kHz (`amt/audio.py`); frame counts match the audio. |
+| Chroma computed from Mel bins as if they were linear-frequency bins (220 Hz A showed up as C#) | Chroma is built from the Mel bins' centre frequencies (`amt/voicing.py`); tested for C, E, G and A. |
+| The percentile mask kept ~90 % of frames for a tone *and* for white noise | By construction a 10th-percentile threshold keeps 90 % of any signal. The default mask now uses chroma *concentration* (harmonic sounds occupy few pitch classes, noise spreads evenly) with a threshold calibrated to a fixed 5 % false-alarm rate on white noise, plus an energy floor. The literal rule is kept as `mode="paper_literal"` and is evaluated side by side. |
+| "Polyphonic" test was solo singing with accompaniment 40 dB down | Noise sweeps are labelled as noise sweeps; the polyphonic test mixes vocadito vocals with real MUSDB18 drums/bass/other at 10 / 5 / 0 / -5 dB. |
+| No baseline, no gate ablation, only the first 5-10 files | Every run evaluates plain CREPE, each gate alone and both together, with and without Demucs, on a stratified clip sample (`evaluation/run_eval.py`). |
+| "Paper Target" lines printed next to results | Removed. Nothing in the code refers to target numbers. |
+| Frame alignment by interpolating Hz across gated zeros | Metrics use `mir_eval` with the standard sign convention for voicing. |
+| One note per integer-MIDI change (jitter fragments notes) | Median smoothing, gap bridging and a minimum duration (`amt/midi.py`). |
+
+## Evaluation protocol (`evaluation/`)
+
+* **Data:** Annotated-VocalSet (audio + f0 annotations) and vocadito; `evaluation/get_data.py` downloads both, plus MUSDB18 7 s excerpts for accompaniment, from Zenodo.
+* **Split:** four VocalSet singers (f2, f6, m3, m8) are reserved for exploratory runs; reported VocalSet numbers use the other 16 singers, 6 clips each (96 clips, deterministic sample).
+* **Noise:** white Gaussian noise, SNR measured in the 0-8 kHz band the 16 kHz pitch branch sees, so a plain-CREPE baseline and the Demucs path face the same in-band noise.
+* **Systems:** `crepe*` = plain torchcrepe on the (noisy) mix, `sep*` = Demucs vocals stem then torchcrepe. Suffix `F` = torchcrepe's default 50-2006 Hz range, no suffix = the pipeline's vocal range (60-1100 Hz). Gates: `raw`, `conf50` (periodicity >= 0.5), `conf` (>= 0.15, the paper's), `mask`, `conf+mask` (the paper's fusion), `pmask` / `conf+pmask` (paper-literal percentile mask).
+* **Metrics:** standard `mir_eval` RPA (50 cents; independent of voicing, so a gate cannot change it), *gated* RPA (frame must also be marked voiced, which is what the MIDI output reflects), frame precision / recall / F1, voicing false-alarm rate, and note-level F1 on vocadito. Means with 95 % bootstrap intervals over clips.
+* **Thresholds are fixed in advance** (`amt/config.py`): confidence 0.15 from the paper, 5 % mask false-alarm rate and 45 dB energy floor chosen a priori. Nothing is tuned to reach a target number.
+
+```bash
+python evaluation/get_data.py --root data
+python evaluation/run_all.py --data data --out results     # resumable
+pytest tests -q                                            # AMT_TEST_DEVICE=cuda to test on GPU
+```
+
+`colab_run.ipynb` runs all of the above on a Colab GPU and keeps results on Drive.
+
+## Deviations from the paper
+
+* The mask uses chroma concentration instead of the 10th-percentile energy rule (see table above).
+* The pitch search range is narrowed per stem (e.g. 60-1100 Hz for vocals, 30-400 Hz for bass); the paper's C1-B7 range is also reported (`F` systems).
+* Gaps are bridged and short notes dropped when writing MIDI; the paper does not specify note segmentation.
+* The paper's "precision / recall" are described only as "representative samples"; here they are computed frame-wise over every evaluated clip.
+
+## Results
+
+See `results/summary.md` (generated by `evaluation/run_all.py`).

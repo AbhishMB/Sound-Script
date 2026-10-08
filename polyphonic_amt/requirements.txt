@@ -1,0 +1,14 @@
+torch>=2.0.0
+torchaudio>=2.0.0
+demucs>=4.0.0
+torchcrepe>=0.0.20
+librosa>=0.10.0
+numpy>=1.24.0
+scipy>=1.10.0
+pandas>=2.0.0
+soundfile>=0.12.1
+pretty_midi>=0.2.10
+mir_eval>=0.7
+imageio-ffmpeg>=0.4.9
+matplotlib>=3.7.0
+pytest>=7.0.0
