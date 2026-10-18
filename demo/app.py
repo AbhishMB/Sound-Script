@@ -223,14 +223,17 @@ if uploaded_file is not None:
     # Normalize to WAV (16 kHz mono PCM16) for player + visualization + transcription
     audio_path = "temp_input.wav"
     if raw_ext in VIDEO_EXTS:
-        from moviepy.editor import VideoFileClip
+        try:
+            from moviepy import VideoFileClip  # moviepy >= 2.0
+        except ImportError:
+            from moviepy.editor import VideoFileClip  # moviepy 1.x
 
         with VideoFileClip(raw_path) as clip:
             if clip.audio is None:
                 st.error("Uploaded video has no audio track.")
                 st.stop()
             clip.audio.write_audiofile(
-                audio_path, codec="pcm_s16le", fps=16000, verbose=False, logger=None
+                audio_path, codec="pcm_s16le", fps=16000, logger=None
             )
     else:
         y, sr_in = librosa.load(raw_path, sr=16000, mono=True)
