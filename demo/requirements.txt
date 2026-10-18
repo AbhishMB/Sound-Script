@@ -1,0 +1,12 @@
+streamlit
+librosa
+soundfile
+numpy
+pretty_midi
+matplotlib
+tensorflow
+crepe
+moviepy==2.1.1
+imageio-ffmpeg
+
+music21
